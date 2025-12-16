@@ -13,8 +13,8 @@ FirebaseConfig.initialize(
 )
 
 sensor_ref = FirebaseConfig.get_reference('sensor_data')
-recommendations_ref = FirebaseConfig.get_reference('ai_recommendations')
-alerts_ref = FirebaseConfig.get_reference('alerts')
+fish_type_recommendations = FirebaseConfig.get_reference('fish_type')
+fish_health = FirebaseConfig.get_reference('fish_health')
 
 @app.route('/')
 def home():
@@ -22,11 +22,10 @@ def home():
         'message': '🐟 Limix API',
         'version': '1.0',
         'endpoints': {
-            '/api/sensor/latest': 'Latest reading',
-            '/api/sensor/history': 'History for charts',
-            '/api/recommendation/latest': 'Fish recommendation',
+            '/api/sensor/latest': 'Latest reading sensors',
+            '/api/fish-type/latest': 'Fish-Type recommendation',
+            '/api/fish-health/latest': 'AI Fish Health check (POST with image)',
             '/api/dashboard': '⭐ All data (use this)',
-            '/api/alerts': 'Alerts'
         }
     })
 
@@ -44,42 +43,20 @@ def get_latest():
                 'ph': latest.get('ph'),
                 'temperature': latest.get('temperature'),
                 'turbidity': latest.get('turbidity'),
+                'ammonia': latest.get('ammonia'),
+                'do': latest.get('do'),
+                'ec': latest.get('ec'),
                 'timestamp': latest.get('timestamp')
             }
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/sensor/history')
-def get_history():
-    try:
-        limit = request.args.get('limit', 20, type=int)
-        limit = min(limit, 100)
-        
-        data = sensor_ref.order_by_key().limit_to_last(limit).get()
-        if not data:
-            return jsonify({'success': False}), 404
-        
-        history = []
-        for key, val in data.items():
-            history.append({
-                'id': key,
-                'ph': val.get('ph'),
-                'temperature': val.get('temperature'),
-                'turbidity': val.get('turbidity'),
-                'timestamp': val.get('timestamp')
-            })
-        
-        history.sort(key=lambda x: x['timestamp'], reverse=True)
-        
-        return jsonify({'success': True, 'count': len(history), 'data': history})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/recommendation/latest')
+@app.route('/api/fish-type/latest')
 def get_recommendation():
     try:
-        data = recommendations_ref.order_by_key().limit_to_last(1).get()
+        data = fish_type_recommendations.order_by_key().limit_to_last(1).get()
         if not data:
             return jsonify({'success': False}), 404
         
@@ -88,12 +65,44 @@ def get_recommendation():
             'success': True,
             'data': {
                 'fish_name': rec.get('fish_name'),
-                'confidence': rec.get('confidence'),
-                'timestamp': rec.get('timestamp')
+                'timestamp': rec.get('timestamp'),
+                'confidence': rec.get('confidence')
             }
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    
+
+@app.route('/api/fish-health/latest', methods=['POST'])
+def ai_health_check():
+    if fish_health is None:
+        return jsonify({
+            'success': False,
+            'error': 'AI model not loaded'
+        }), 500
+
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image uploaded'}), 400
+        
+        image_file = request.files['image']
+        filename = image_file.filename.lower()
+        if not (filename.endswith('.jpg') or filename.endswith('.jpeg') or filename.endswith('.png')):
+            return jsonify({'success': False, 'error': 'Invalid image format. Use JPG or PNG.'}), 400
+
+        # Run prediction
+        result = fish_health(image_file.stream)
+
+        return jsonify({
+            'success': True,
+            'data': result
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/dashboard')
 def dashboard():
@@ -112,6 +121,9 @@ def dashboard():
                     'ph': v.get('ph'),
                     'temperature': v.get('temperature'),
                     'turbidity': v.get('turbidity'),
+                    'ammonia': v.get('ammonia'),
+                    'do': v.get('do'),
+                    'ec': v.get('ec'),
                     'timestamp': v.get('timestamp')
                 })
         
@@ -120,12 +132,15 @@ def dashboard():
             avg_ph = round(sum(h['ph'] for h in history) / len(history), 2)
             avg_temp = round(sum(h['temperature'] for h in history) / len(history), 2)
             avg_turb = round(sum(h['turbidity'] for h in history) / len(history), 2)
+            avg_ammonia = round(sum(h['ammonia'] for h in history) / len(history), 2)
+            avg_do = round(sum(h['do'] for h in history) / len(history), 2)
+            avg_ec = round(sum(h['ec'] for h in history) / len(history), 2)
         else:
             avg_ph = avg_temp = avg_turb = 0
         
         # Recommendation
-        rec_data = recommendations_ref.order_by_key().limit_to_last(1).get()
-        recommendation = list(rec_data.values())[0] if rec_data else None
+        rec_data = fish_type_recommendations.order_by_key().limit_to_last(1).get()
+        fish_recommendation = list(rec_data.values())[0] if rec_data else None
         
         return jsonify({
             'success': True,
@@ -134,18 +149,24 @@ def dashboard():
                     'ph': latest.get('ph', 0),
                     'temperature': latest.get('temperature', 0),
                     'turbidity': latest.get('turbidity', 0),
+                    'ammonia': latest.get('ammonia', 0),
+                    'do': latest.get('do', 0),
+                    'ec': latest.get('ec', 0),
                     'timestamp': latest.get('timestamp')
                 },
                 'averages': {
                     'ph': avg_ph,
                     'temperature': avg_temp,
-                    'turbidity': avg_turb
+                    'turbidity': avg_turb,
+                    'ammonia': avg_ammonia,
+                    'do': avg_do,
+                    'ec': avg_ec
                 },
                 'history': history,
                 'recommendation': {
-                    'fish_name': recommendation.get('fish_name') if recommendation else 'N/A',
-                    'confidence': recommendation.get('confidence') if recommendation else 0
-                } if recommendation else None
+                    'fish_name': fish_recommendation.get('fish_name') if fish_recommendation else 'N/A',
+                    'confidence': fish_recommendation.get('confidence') if fish_recommendation else 0
+                } if fish_recommendation else None
             }
         })
     except Exception as e:

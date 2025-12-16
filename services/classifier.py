@@ -31,10 +31,10 @@ class FishClassifier:
             return {
                 'fish_type': prediction,
                 'fish_name': fish_name,
-                'confidence': 85.0,
                 'ph': ph,
                 'temperature': temperature,
                 'turbidity': turbidity,
+                'confidence': 85.0,
                 'timestamp': datetime.now().isoformat()
             }
         except Exception as e:

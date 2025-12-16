@@ -15,7 +15,7 @@ FIREBASE_URL = 'https://limix-fishfarm-v2-default-rtdb.firebaseio.com'
 
 def run_api():
     from api.app import app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True) 
 
 def run_simulator():
     FirebaseConfig.initialize(database_url=FIREBASE_URL)
@@ -30,6 +30,7 @@ def run_listener():
 def run_all():
     FirebaseConfig.initialize(database_url=FIREBASE_URL)
     backend = LimixBackend()
+    
     
     # Threads
     threading.Thread(target=backend.start_simulator, kwargs={'interval': 10}, daemon=True).start()
